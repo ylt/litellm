@@ -92,6 +92,7 @@ WORKDIR /app
 ENV PATH="/app/.venv/bin:${PATH}"
 
 COPY --from=builder /app /app
+COPY --from=builder /root/.local /root/.local
 # Prisma binaries live in $HOME/.cache (default prisma-python location),
 # which is /root/.cache here. Copy them from the builder so they survive
 # deployments that volume-mount /app/.cache (e.g. readOnlyRootFilesystem
