@@ -4,6 +4,7 @@ Handler for the Anthropic v1/messages -> OpenAI Responses API path.
 Used when the target model is an OpenAI or Azure model.
 """
 
+import json
 from typing import Any, AsyncIterator, Coroutine, Dict, List, Optional, Union
 
 import litellm
@@ -15,6 +16,81 @@ from litellm.types.llms.openai import ResponsesAPIResponse
 
 from .streaming_iterator import AnthropicResponsesStreamWrapper
 from .transformation import LiteLLMAnthropicToResponsesAPIAdapter
+from ..messages.fake_stream_iterator import FakeAnthropicMessagesStreamIterator
+
+
+def _tool_search_kind(tool: Dict[str, Any]) -> Optional[str]:
+    tool_type = str(tool.get("type", ""))
+    if tool_type.startswith("tool_search_tool_regex"):
+        return "regex"
+    if tool_type.startswith("tool_search_tool_bm25"):
+        return "bm25"
+    return None
+
+
+def _response_item_value(item: Any, key: str, default: Any = None) -> Any:
+    if isinstance(item, dict):
+        return item.get(key, default)
+    return getattr(item, key, default)
+
+
+def _native_tool_search_events(
+    response: ResponsesAPIResponse, search_tool_type: str
+) -> List[Dict[str, Any]]:
+    """Translate OpenAI Responses tool-search items to Anthropic content blocks."""
+    events: List[Dict[str, Any]] = []
+    search_name = (
+        "tool_search_tool_regex"
+        if "regex" in search_tool_type
+        else "tool_search_tool_bm25"
+    )
+    search_id = "srvtoolu_openai_tool_search"
+    for item in response.output:
+        item_type = _response_item_value(item, "type")
+        if item_type not in {"tool_search_call", "tool_search_output"}:
+            continue
+        call_id = _response_item_value(item, "call_id") or _response_item_value(
+            item, "id"
+        )
+        if item_type == "tool_search_call":
+            search_id = call_id or search_id
+            arguments = _response_item_value(item, "arguments", {})
+            if isinstance(arguments, str):
+                try:
+                    arguments = json.loads(arguments)
+                except json.JSONDecodeError:
+                    arguments = {"query": arguments}
+            events.append(
+                {
+                    "type": "server_tool_use",
+                    "id": search_id,
+                    "name": search_name,
+                    "input": arguments if isinstance(arguments, dict) else {},
+                }
+            )
+        else:
+            loaded_tools = _response_item_value(item, "tools", []) or []
+            references = []
+            for tool in loaded_tools:
+                name = _response_item_value(tool, "name")
+                function = _response_item_value(tool, "function")
+                if not name and function is not None:
+                    name = _response_item_value(function, "name")
+                if name:
+                    references.append(
+                        {"type": "tool_reference", "tool_name": name}
+                    )
+            events.append(
+                {
+                    "type": "tool_search_tool_result",
+                    "tool_use_id": search_id,
+                    "content": {
+                        "type": "tool_search_tool_search_result",
+                        "tool_references": references,
+                    },
+                }
+            )
+    return events
 
 _ADAPTER = LiteLLMAnthropicToResponsesAPIAdapter()
 
@@ -140,6 +216,12 @@ class LiteLLMMessagesToResponsesAPIHandler:
         output_format: Optional[Dict] = None,
         **kwargs,
     ) -> Union[AnthropicMessagesResponse, AsyncIterator]:
+        tool_search = next(
+            (tool for tool in (tools or []) if _tool_search_kind(tool)), None
+        )
+        search_kind = _tool_search_kind(tool_search) if tool_search else None
+        search_events: List[Dict[str, Any]] = []
+
         responses_kwargs = _build_responses_kwargs(
             max_tokens=max_tokens,
             messages=messages,
@@ -160,7 +242,23 @@ class LiteLLMMessagesToResponsesAPIHandler:
             extra_kwargs=kwargs,
         )
 
+        request_stream = bool(stream)
+        if search_kind:
+            # Native OpenAI hosted tool search emits the search call/output and
+            # the resulting model output in one Responses result.  Buffer it so
+            # we can translate those items into Anthropic server-tool blocks.
+            responses_kwargs["stream"] = False
         result = await litellm.aresponses(**responses_kwargs)
+
+        if search_kind and isinstance(result, ResponsesAPIResponse):
+            search_events = _native_tool_search_events(
+                result, tool_search.get("type", "") if tool_search else ""
+            )
+
+        if request_stream and search_events and isinstance(result, ResponsesAPIResponse):
+            response = _ADAPTER.translate_response(result)
+            response["content"] = search_events + list(response.get("content", []))
+            return FakeAnthropicMessagesStreamIterator(response)
 
         if stream:
             wrapper = AnthropicResponsesStreamWrapper(

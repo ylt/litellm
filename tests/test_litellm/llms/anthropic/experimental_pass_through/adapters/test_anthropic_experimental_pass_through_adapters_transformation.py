@@ -364,6 +364,51 @@ def test_translate_anthropic_messages_to_openai_tool_message_placement():
     ), "Tool message should be placed before user message"
 
 
+def test_translate_anthropic_tool_reference_to_openai_tool_output():
+    """ToolSearch references must not orphan the preceding function call."""
+
+    anthropic_messages = [
+        AnthropicMessagesUserMessageParam(
+            role="user", content="Find the SendMessage tool."
+        ),
+        AnthopicMessagesAssistantMessageParam(
+            role="assistant",
+            content=[
+                {
+                    "type": "tool_use",
+                    "id": "call_tool_search",
+                    "name": "ToolSearch",
+                    "input": {"query": "select:SendMessage"},
+                }
+            ],
+        ),
+        AnthropicMessagesUserMessageParam(
+            role="user",
+            content=[
+                {
+                    "type": "tool_result",
+                    "tool_use_id": "call_tool_search",
+                    "content": [{"type": "tool_reference", "tool_name": "SendMessage"}],
+                }
+            ],
+        ),
+    ]
+
+    result = LiteLLMAnthropicMessagesAdapter().translate_anthropic_messages_to_openai(
+        messages=anthropic_messages
+    )
+
+    tool_outputs = [
+        msg
+        for msg in result
+        if isinstance(msg, dict) and msg.get("role") == "tool"
+    ]
+    assert len(tool_outputs) == 1
+    assert tool_outputs[0]["tool_call_id"] == "call_tool_search"
+    assert "tool_reference" in str(tool_outputs[0]["content"])
+    assert "SendMessage" in str(tool_outputs[0]["content"])
+
+
 def test_translate_openai_content_to_anthropic_empty_function_arguments():
     """Test that empty function arguments are handled safely and don't cause JSON parsing errors."""
 

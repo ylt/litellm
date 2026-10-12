@@ -60,6 +60,14 @@ def _should_route_to_responses_api(custom_llm_provider: Optional[str]) -> bool:
     return custom_llm_provider in _RESPONSES_API_PROVIDERS
 
 
+def _has_tool_search_tool(tools: Optional[List[Dict]]) -> bool:
+    return any(
+        isinstance(tool, dict)
+        and str(tool.get("type", "")).startswith("tool_search_tool_")
+        for tool in (tools or [])
+    )
+
+
 ####### ENVIRONMENT VARIABLES ###################
 # Initialize any necessary instances or variables here
 base_llm_http_handler = BaseLLMHTTPHandler()
@@ -484,7 +492,13 @@ def anthropic_messages_handler(
             custom_llm_provider=custom_llm_provider,
             **kwargs,
         )
-        if _should_route_to_responses_api(custom_llm_provider):
+        # ChatGPT's backend is Responses-native, but its normal Anthropic
+        # compatibility path cannot accept Anthropic server-tool types. Route
+        # Tool Search requests through the local Responses adapter, which
+        # emulates the server-side search instead of forwarding the type.
+        if _should_route_to_responses_api(custom_llm_provider) or (
+            custom_llm_provider == "chatgpt" and _has_tool_search_tool(tools)
+        ):
             return LiteLLMMessagesToResponsesAPIHandler.anthropic_messages_handler(
                 **_shared_kwargs
             )

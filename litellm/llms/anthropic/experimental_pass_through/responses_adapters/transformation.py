@@ -192,6 +192,15 @@ class LiteLLMAnthropicToResponsesAPIAdapter:
             tool_dict = cast(Dict[str, Any], tool)
             tool_type = tool_dict.get("type", "")
             tool_name = tool_dict.get("name", "")
+            # Anthropic's server-side Tool Search is represented by OpenAI's
+            # native Responses API tool_search on OAI-compatible endpoints.
+            # Keep the deferred catalog in the request: OpenAI performs the
+            # search and injects the loaded definitions into the context.
+            if isinstance(tool_type, str) and tool_type.startswith(
+                "tool_search_tool_"
+            ):
+                result.append({"type": "tool_search"})
+                continue
             # web_search tool
             if (
                 isinstance(tool_type, str) and tool_type.startswith("web_search")
@@ -203,6 +212,10 @@ class LiteLLMAnthropicToResponsesAPIAdapter:
                 func_tool["description"] = tool_dict["description"]
             if "input_schema" in tool_dict:
                 func_tool["parameters"] = tool_dict["input_schema"]
+            if "defer_loading" in tool_dict:
+                func_tool["defer_loading"] = tool_dict["defer_loading"]
+            if "strict" in tool_dict:
+                func_tool["strict"] = tool_dict["strict"]
             result.append(func_tool)
         return result
 

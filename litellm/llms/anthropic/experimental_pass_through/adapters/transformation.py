@@ -523,6 +523,22 @@ class LiteLLMAnthropicMessagesAdapter:
                                                 content, tool_result, model
                                             )
                                             tool_message_list.append(tool_result)  # type: ignore[arg-type]
+                                        elif c.get("type") == "tool_reference":
+                                            # Claude Code's ToolSearch returns deferred
+                                            # tools as tool_reference blocks.  They are
+                                            # metadata, but must still produce a tool
+                                            # output for the preceding function call;
+                                            # silently dropping them leaves the
+                                            # Responses API with an unmatched call_id.
+                                            tool_result = ChatCompletionToolMessage(
+                                                role="tool",
+                                                tool_call_id=content.get("tool_use_id", ""),
+                                                content=json.dumps(c, separators=(",", ":")),
+                                            )
+                                            self._add_cache_control_if_applicable(
+                                                content, tool_result, model
+                                            )
+                                            tool_message_list.append(tool_result)  # type: ignore[arg-type]
                                 else:
                                     # For multiple content items, combine into a single tool message
                                     # with list content to preserve all items while having one tool_use_id
@@ -564,6 +580,15 @@ class LiteLLMAnthropicMessagesAdapter:
                                                             ),
                                                         )
                                                     )
+                                            elif c.get("type") == "tool_reference":
+                                                combined_content_parts.append(
+                                                    ChatCompletionTextObject(
+                                                        type="text",
+                                                        text=json.dumps(
+                                                            c, separators=(",", ":")
+                                                        ),
+                                                    )
+                                                )
                                     # Create a single tool message with combined content
                                     if combined_content_parts:
                                         tool_result = ChatCompletionToolMessage(

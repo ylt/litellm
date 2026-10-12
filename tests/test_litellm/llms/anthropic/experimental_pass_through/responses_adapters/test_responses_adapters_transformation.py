@@ -555,6 +555,35 @@ class TestTranslateToolsToResponsesAPI:
         result = _ADAPTER.translate_tools_to_responses_api(tools)  # type: ignore[arg-type]
         assert result == [{"type": "web_search_preview"}]
 
+    def test_anthropic_tool_search_maps_to_native_openai_tool_search(self):
+        """Anthropic server Tool Search becomes native Responses tool search."""
+        tools = [
+            {"type": "tool_search_tool_bm25_20251119"},
+            {
+                "name": "search_files",
+                "description": "Search files by name or content.",
+                "defer_loading": True,
+                "input_schema": {
+                    "type": "object",
+                    "properties": {"query": {"type": "string"}},
+                },
+            },
+        ]
+        result = _ADAPTER.translate_tools_to_responses_api(tools)  # type: ignore[arg-type]
+        assert result == [
+            {"type": "tool_search"},
+            {
+                "type": "function",
+                "name": "search_files",
+                "description": "Search files by name or content.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {"query": {"type": "string"}},
+                },
+                "defer_loading": True,
+            },
+        ]
+
     def test_multiple_tools_order_preserved(self):
         """Multiple tools are converted in order."""
         tools = [
