@@ -35,6 +35,7 @@ from litellm.litellm_core_utils.url_utils import safe_get
 from litellm.types.llms.anthropic import (
     AnthropicMessagesToolResultParam,
     AnthropicMessagesToolUseParam,
+    ToolReference,
 )
 from litellm.types.llms.openai import (
     AllMessageValues,
@@ -644,6 +645,7 @@ def _validate_anthropic_content(content: Mapping[str, Any]) -> type:
     mapping = {
         "tool_use": AnthropicMessagesToolUseParam,
         "tool_result": AnthropicMessagesToolResultParam,
+        "tool_reference": ToolReference,
     }
 
     expected_cls = mapping.get(content_type)
@@ -731,7 +733,7 @@ def _count_content_list(
                 num_tokens += _count_image_tokens(
                     image_url, use_default_image_token_count
                 )
-            elif c["type"] in ("tool_use", "tool_result"):
+            elif c["type"] in ("tool_use", "tool_result", "tool_reference"):
                 num_tokens += _count_anthropic_content(
                     c,
                     count_function,
@@ -752,7 +754,7 @@ def _count_content_list(
                 )
                 raise ValueError(
                     f"Invalid content item type: {content_type}. "
-                    f"Expected str or dict with 'type' field (text, image_url, tool_use, tool_result, thinking)."
+                    f"Expected str or dict with 'type' field (text, image_url, tool_use, tool_result, tool_reference, thinking)."
                 )
         return num_tokens
     except Exception as e:

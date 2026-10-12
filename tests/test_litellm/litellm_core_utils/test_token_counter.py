@@ -1005,3 +1005,22 @@ def test_token_counter_with_thinking_content():
     assert (
         tokens_no_thinking < 15
     ), f"Expected minimal token count for empty thinking block, got {tokens_no_thinking}"
+
+
+def test_token_counter_with_tool_reference_content():
+    """Deferred Anthropic tools use tool_reference content blocks."""
+    messages = [
+        {
+            "role": "assistant",
+            "content": [
+                {"type": "text", "text": "I will search for the right tool."},
+                {"type": "tool_reference", "tool_name": "search_files"},
+            ],
+        }
+    ]
+
+    tokens = token_counter(
+        model="anthropic/claude-sonnet-4-5-20250929", messages=messages
+    )
+
+    assert tokens > 0
