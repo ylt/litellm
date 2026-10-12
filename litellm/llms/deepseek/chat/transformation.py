@@ -55,12 +55,13 @@ class DeepSeekChatConfig(OpenAIGPTConfig):
                 isinstance(thinking_value, dict)
                 and thinking_value.get("type") == "enabled"
             ):
-                # DeepSeek only accepts {"type": "enabled"}, ignore budget_tokens
                 optional_params["thinking"] = {"type": "enabled"}
 
-        # Handle reasoning_effort - map to thinking enabled
-        elif reasoning_effort is not None and reasoning_effort != "none":
+        # Handle reasoning_effort — DeepSeek v4 supports levels: low/medium/high/max.
+        # Must pass BOTH the thinking toggle AND the reasoning_effort value.
+        if reasoning_effort is not None and reasoning_effort != "none":
             optional_params["thinking"] = {"type": "enabled"}
+            optional_params["reasoning_effort"] = reasoning_effort
 
         return optional_params
 

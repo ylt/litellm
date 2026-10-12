@@ -8292,13 +8292,19 @@ class Router:
             api_base = None
         else:
             # check if model provider in supported providers
+            # Strip LiteLLM 'responses/' routing prefix for provider detection.
+            # Models like responses/chatgpt/gpt-5.5 route through the responses
+            # API bridge but the provider must be matched without the prefix.
+            _provider_model = deployment.litellm_params.model
+            if _provider_model.startswith("responses/"):
+                _provider_model = _provider_model[len("responses/"):]
             (
                 _model,
                 custom_llm_provider,
                 dynamic_api_key,
                 api_base,
             ) = litellm.get_llm_provider(
-                model=deployment.litellm_params.model,
+                model=_provider_model,
                 custom_llm_provider=deployment.litellm_params.get(
                     "custom_llm_provider", None
                 ),
@@ -9019,10 +9025,15 @@ class Router:
         else:
             model_info_name = model
 
-        model_info = litellm.get_model_info(model=model_info_name)
-
-        ## CHECK USER SET MODEL INFO
         user_model_info = deployment.get("model_info") or {}
+
+        try:
+            model_info = litellm.get_model_info(model=model_info_name)
+        except Exception:
+            if user_model_info:
+                model_info = cast(ModelInfo, user_model_info.copy())
+            else:
+                raise
 
         if model_info is not None:
             model_info.update(cast(ModelInfo, user_model_info))

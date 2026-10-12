@@ -2361,6 +2361,10 @@ class ConfigGeneralSettings(LiteLLMPydanticObjectBase):
     completion_model: Optional[str] = Field(
         None, description="proxy level default model for all chat completion calls"
     )
+    claude_code_compat_mode: Optional[bool] = Field(
+        False,
+        description="Expose non-Anthropic models under temporary claude-compat IDs to Claude Code gateway discovery requests.",
+    )
     key_management_system: Optional[KeyManagementSystem] = Field(
         None, description="key manager to load keys from / decrypt keys with"
     )

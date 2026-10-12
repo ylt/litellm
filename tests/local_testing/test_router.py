@@ -698,6 +698,37 @@ def test_router_context_window_check_pre_call_check_in_group_custom_model_info()
         pytest.fail(f"Got unexpected exception on router! - {str(e)}")
 
 
+def test_router_context_window_check_pre_call_check_unmapped_custom_model_info():
+    router = Router(
+        model_list=[
+            {
+                "model_name": "deepseek-v4-flash",
+                "litellm_params": {
+                    "model": "deepseek/deepseek-v4-flash",
+                    "api_key": "test-key",
+                    "mock_response": "Hello from DeepSeek!",
+                },
+                "model_info": {
+                    "max_input_tokens": 1000000,
+                    "max_output_tokens": 384000,
+                },
+            }
+        ],
+        set_verbose=True,
+        enable_pre_call_checks=True,
+        num_retries=0,
+    )  # type: ignore
+
+    response = router.completion(
+        model="deepseek-v4-flash",
+        messages=[
+            {"role": "user", "content": "Say hello."},
+        ],
+    )
+
+    assert response.choices[0].message.content == "Hello from DeepSeek!"
+
+
 def test_router_context_window_check_pre_call_check():
     """
     - Give a gpt-3.5-turbo model group with different context windows (4k vs. 16k)

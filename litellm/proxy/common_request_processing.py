@@ -908,6 +908,10 @@ class ProxyBaseLLMRequestProcessing:
         ### MODEL ALIAS MAPPING ###
         # check if model name in model alias map
         # get the actual model name
+        from litellm.proxy.claude_code_compat import from_claude_code_model_id
+
+        if isinstance(self.data.get("model"), str):
+            self.data["model"] = from_claude_code_model_id(self.data["model"])
         if (
             isinstance(self.data["model"], str)
             and self.data["model"] in litellm.model_alias_map

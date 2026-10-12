@@ -3,6 +3,7 @@ import json
 import os
 import sys
 from datetime import datetime
+from types import SimpleNamespace
 from typing import Any, Dict, List, Optional, Union
 from unittest.mock import Mock
 
@@ -10,7 +11,12 @@ import pytest
 from fastapi import Request
 from starlette.datastructures import State
 
-from litellm.proxy.utils import _get_docs_url, _get_openapi_url, _get_redoc_url
+from litellm.proxy.utils import (
+    _get_docs_url,
+    _get_openapi_url,
+    _get_redoc_url,
+    create_model_info_response,
+)
 
 sys.path.insert(
     0, os.path.abspath("../..")
@@ -29,6 +35,83 @@ from litellm.proxy.litellm_pre_call_utils import (
 )
 
 pytestmark = pytest.mark.xdist_group("proxy_heavy")
+
+
+class TestCreateModelInfoResponse:
+    def test_should_include_additive_model_metadata_from_router_group_info(self):
+        llm_router = Mock()
+        llm_router.get_model_list.return_value = []
+        llm_router.get_model_group_info.return_value = SimpleNamespace(
+            max_input_tokens=1000000,
+            max_tokens=1000000,
+            max_output_tokens=384000,
+            input_cost_per_token=0.000000435,
+            output_cost_per_token=0.00000087,
+        )
+
+        result = create_model_info_response(
+            model_id="deepseek-v4-pro",
+            provider="openai",
+            llm_router=llm_router,
+        )
+
+        assert result["id"] == "deepseek-v4-pro"
+        assert result["context_length"] == 1000000
+        assert result["max_completion_tokens"] == 384000
+        assert result["input_cost_per_token"] == 0.000000435
+        assert result["output_cost_per_token"] == 0.00000087
+
+    def test_should_omit_optional_fields_when_router_group_info_missing_values(self):
+        llm_router = Mock()
+        llm_router.get_model_list.return_value = []
+        llm_router.get_model_group_info.return_value = SimpleNamespace(
+            max_input_tokens=None,
+            max_tokens=None,
+            max_output_tokens=None,
+            input_cost_per_token=None,
+            output_cost_per_token=None,
+        )
+
+        result = create_model_info_response(
+            model_id="deepseek-v4-pro",
+            provider="openai",
+            llm_router=llm_router,
+        )
+
+        assert "context_length" not in result
+        assert "max_completion_tokens" not in result
+        assert "input_cost_per_token" not in result
+        assert "output_cost_per_token" not in result
+
+    def test_should_fallback_to_deployment_model_info_when_group_has_no_metadata(self):
+        llm_router = Mock()
+        llm_router.get_model_list.return_value = [
+            {
+                "model_info": {
+                    "max_input_tokens": 1000000,
+                    "max_output_tokens": 384000,
+                    "input_cost_per_token": 4.35e-7,
+                    "output_cost_per_token": 8.7e-7,
+                }
+            }
+        ]
+        llm_router.get_model_group_info.return_value = SimpleNamespace(
+            max_input_tokens=None,
+            max_output_tokens=None,
+            input_cost_per_token=None,
+            output_cost_per_token=None,
+        )
+
+        result = create_model_info_response(
+            model_id="deepseek-v4-pro",
+            provider="openai",
+            llm_router=llm_router,
+        )
+
+        assert result["context_length"] == 1000000.0
+        assert result["max_completion_tokens"] == 384000.0
+        assert result["input_cost_per_token"] == 4.35e-7
+        assert result["output_cost_per_token"] == 8.7e-7
 
 
 @pytest.fixture

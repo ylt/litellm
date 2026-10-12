@@ -3036,6 +3036,11 @@ def _can_object_call_model(
         return True
 
     potential_models = [model]
+    from litellm.proxy.claude_code_compat import from_claude_code_model_id
+
+    compat_model = from_claude_code_model_id(model)
+    if compat_model != model:
+        potential_models.append(compat_model)
     if model in litellm.model_alias_map:
         potential_models.append(litellm.model_alias_map[model])
     elif llm_router and model in llm_router.model_group_alias:

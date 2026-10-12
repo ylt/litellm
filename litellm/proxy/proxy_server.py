@@ -8194,6 +8194,7 @@ class ProxyStartupEvent:
     "/models", dependencies=[Depends(user_api_key_auth)], tags=["model management"]
 )  # if project requires model list
 async def model_list(
+    request: Request,
     user_api_key_dict: UserAPIKeyAuth = Depends(user_api_key_auth),
     return_wildcard_routes: Optional[bool] = False,
     team_id: Optional[str] = None,
@@ -8202,6 +8203,7 @@ async def model_list(
     include_metadata: Optional[bool] = False,
     fallback_type: Optional[str] = None,
     scope: Optional[str] = None,
+    format: Optional[str] = None,
 ):
     """
     Use `/model/info` - to get detailed model information, example - pricing, mode, etc.
@@ -8224,6 +8226,17 @@ async def model_list(
     from litellm.proxy.utils import (
         create_model_info_response,
         get_available_models_for_user,
+        build_codex_model_info,
+    )
+    from litellm.proxy.claude_code_compat import (
+        claude_code_model_metadata,
+        claude_code_compat_enabled,
+        is_claude_code_user_agent,
+        to_claude_code_model_id,
+    )
+
+    claude_code_compat = claude_code_compat_enabled(general_settings) and is_claude_code_user_agent(
+        request.headers.get("user-agent")
     )
 
     # Validate scope parameter if provided
@@ -8285,6 +8298,12 @@ async def model_list(
             all_models = [m for m in all_models if m not in blocked_names]
 
         # Build response data with all proxy models
+        if format == "codex":
+            models = [
+                build_codex_model_info(model_id=model, llm_router=llm_router)
+                for model in all_models
+            ]
+            return dict(models=models)
         model_data = []
         for model in all_models:
             model_info = create_model_info_response(
@@ -8294,6 +8313,14 @@ async def model_list(
                 fallback_type=fallback_type,
                 llm_router=llm_router,
             )
+            model_info.update(
+                claude_code_model_metadata(
+                    model_id=model_info["id"],
+                    llm_router=llm_router,
+                )
+            )
+            if claude_code_compat:
+                model_info["id"] = to_claude_code_model_id(model_info["id"])
             model_data.append(model_info)
 
         return dict(
@@ -8322,6 +8349,13 @@ async def model_list(
         all_models = [m for m in all_models if m not in blocked_names]
 
     # Build response data
+    if format == "codex":
+        models = [
+            build_codex_model_info(model_id=model, llm_router=llm_router)
+            for model in all_models
+        ]
+        return dict(models=models)
+
     model_data = []
     for model in all_models:
         model_info = create_model_info_response(
@@ -8331,6 +8365,14 @@ async def model_list(
             fallback_type=fallback_type,
             llm_router=llm_router,
         )
+        model_info.update(
+            claude_code_model_metadata(
+                model_id=model_info["id"],
+                llm_router=llm_router,
+            )
+        )
+        if claude_code_compat:
+            model_info["id"] = to_claude_code_model_id(model_info["id"])
         model_data.append(model_info)
 
     return dict(

@@ -26,6 +26,8 @@ dependencies = [
     "aiohttp>=3.10,<4.0",
     "pydantic>=2.10.0,<3.0.0",
     "jsonschema>=4.0.0,<5.0",
+    "headroom-ai>=0.5.2",
+    "transformers>=5.9.0",
 ]
 
 [project.urls]

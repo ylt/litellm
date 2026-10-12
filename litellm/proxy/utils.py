@@ -6162,6 +6162,58 @@ def create_model_info_response(
         "owned_by": provider,
     }
 
+    if llm_router is not None:
+        try:
+            model_group_info = llm_router.get_model_group_info(model_id)
+        except Exception:
+            model_group_info = None
+
+        if model_group_info is not None:
+            context_length = model_group_info.max_input_tokens
+            if context_length is not None:
+                model_info["context_length"] = context_length
+
+            if model_group_info.max_output_tokens is not None:
+                model_info["max_completion_tokens"] = model_group_info.max_output_tokens
+
+            if model_group_info.input_cost_per_token is not None:
+                model_info["input_cost_per_token"] = (
+                    model_group_info.input_cost_per_token
+                )
+
+            if model_group_info.output_cost_per_token is not None:
+                model_info["output_cost_per_token"] = (
+                    model_group_info.output_cost_per_token
+                )
+
+        # Fallback: when group aggregation is missing metadata, read directly
+        # from the deployment's own model_info (config-specified values).
+        if llm_router is not None:
+            deploys = llm_router.get_model_list(model_name=model_id) or []
+            for dep in deploys:
+                dep_mi = dep.get("model_info") or {}
+                if "context_length" not in model_info:
+                    ctx = (
+                        dep_mi.get("max_input_tokens")
+                        or dep_mi.get("context_window")
+                        or dep_mi.get("max_tokens")
+                    )
+                    if isinstance(ctx, (int, float)):
+                        model_info["context_length"] = float(ctx)
+                if "max_completion_tokens" not in model_info:
+                    mc = dep_mi.get("max_output_tokens")
+                    if isinstance(mc, (int, float)):
+                        model_info["max_completion_tokens"] = float(mc)
+                if "input_cost_per_token" not in model_info:
+                    ic = dep_mi.get("input_cost_per_token")
+                    if isinstance(ic, (int, float)):
+                        model_info["input_cost_per_token"] = float(ic)
+                if "output_cost_per_token" not in model_info:
+                    oc = dep_mi.get("output_cost_per_token")
+                    if isinstance(oc, (int, float)):
+                        model_info["output_cost_per_token"] = float(oc)
+                break  # first deployment with model_info is sufficient
+
     # Add metadata if requested
     if include_metadata:
         metadata = {}
@@ -6189,6 +6241,219 @@ def create_model_info_response(
         model_info["metadata"] = metadata
 
     return model_info
+
+
+def build_codex_model_info(
+    model_id: str,
+    llm_router: Optional["Router"] = None,
+) -> dict:
+    """
+    Build a model info dict matching Codex's /models response schema
+    (ModelsResponse { models: Vec<ModelInfo> }).
+
+    Reads litellm deployment model_info fields and maps them to Codex ModelInfo.
+    Sensible defaults are used for fields not present in litellm config.
+    """
+    # -- Gather metadata from litellm --
+    context_window = None
+    max_context_window = None
+    max_output_tokens = None
+    default_reasoning_level = None
+    supported_reasoning_levels = None
+    display_name = None
+    description = None
+    base_instructions = None
+    supports_reasoning_summaries = None
+    supports_parallel_tool_calls = None
+    supports_search_tool = None
+    priority = 0
+
+    if llm_router is not None:
+        # Try group-level metadata first
+        try:
+            model_group_info = llm_router.get_model_group_info(model_id)
+        except Exception:
+            model_group_info = None
+
+        if model_group_info is not None:
+            context_window = model_group_info.max_input_tokens
+            max_output_tokens = model_group_info.max_output_tokens
+
+        # Read deployment-level model_info for Codex-specific fields
+        deploys = llm_router.get_model_list(model_name=model_id) or []
+        for dep in deploys:
+            dep_mi = dep.get("model_info") or {}
+            if not isinstance(dep_mi, dict):
+                continue
+
+            # Context window
+            if context_window is None:
+                ctx = (
+                    dep_mi.get("max_input_tokens")
+                    or dep_mi.get("context_window")
+                    or dep_mi.get("max_tokens")
+                )
+                if isinstance(ctx, (int, float)):
+                    context_window = float(ctx)
+            if max_output_tokens is None:
+                mc = dep_mi.get("max_output_tokens")
+                if isinstance(mc, (int, float)):
+                    max_output_tokens = float(mc)
+
+            # Reasoning
+            if default_reasoning_level is None:
+                re = dep_mi.get("reasoning_effort") or dep_mi.get(
+                    "default_reasoning_level"
+                )
+                if isinstance(re, str):
+                    default_reasoning_level = re
+            if supported_reasoning_levels is None:
+                srl = dep_mi.get("supported_reasoning_efforts") or dep_mi.get(
+                    "supported_reasoning_levels"
+                )
+                if isinstance(srl, list):
+                    supported_reasoning_levels = srl
+
+            # Display / description
+            if display_name is None:
+                display_name = dep_mi.get("display_name")
+            if description is None:
+                description = dep_mi.get("description")
+            if base_instructions is None:
+                base_instructions = dep_mi.get("base_instructions")
+
+            # Capability flags
+            if supports_reasoning_summaries is None:
+                srs = dep_mi.get("supports_reasoning_summaries")
+                if isinstance(srs, bool):
+                    supports_reasoning_summaries = srs
+            if supports_parallel_tool_calls is None:
+                sptc = dep_mi.get("supports_parallel_tool_calls")
+                if isinstance(sptc, bool):
+                    supports_parallel_tool_calls = sptc
+            if supports_search_tool is None:
+                sst = dep_mi.get("supports_search_tool")
+                if isinstance(sst, bool):
+                    supports_search_tool = sst
+
+            # Priority
+            if "priority" in dep_mi:
+                p = dep_mi.get("priority")
+                if isinstance(p, (int, float)):
+                    priority = int(p)
+
+            break  # first deployment with model_info is sufficient
+
+    # -- Build Codex ModelInfo with defaults --
+    if display_name is None or not isinstance(display_name, str):
+        display_name = model_id
+    if description is None or not isinstance(description, str):
+        description = ""
+    if base_instructions is None or not isinstance(base_instructions, str):
+        base_instructions = ""
+
+    # Reasoning levels
+    reasoning_effort_defaults = {
+        "none": "No reasoning",
+        "minimal": "Minimal reasoning",
+        "low": "Fast responses with lighter reasoning",
+        "medium": "Balances speed and reasoning depth",
+        "high": "Greater reasoning depth for complex problems",
+        "xhigh": "Extra high reasoning depth for complex problems",
+    }
+    if (
+        supported_reasoning_levels is None
+        or not isinstance(supported_reasoning_levels, list)
+        or len(supported_reasoning_levels) == 0
+    ):
+        # Auto-derive from default_reasoning_level
+        if isinstance(default_reasoning_level, str) and default_reasoning_level:
+            dl = default_reasoning_level
+            supported_reasoning_levels = [
+                {"effort": dl, "description": reasoning_effort_defaults.get(dl, dl)}
+            ]
+        else:
+            supported_reasoning_levels = []
+
+    # Ensure each entry has effort + description
+    normalized_levels = []
+    for entry in supported_reasoning_levels:
+        if isinstance(entry, str):
+            normalized_levels.append(
+                {
+                    "effort": entry,
+                    "description": reasoning_effort_defaults.get(entry, entry),
+                }
+            )
+        elif isinstance(entry, dict):
+            normalized_levels.append(
+                {
+                    "effort": entry.get("effort", "medium"),
+                    "description": entry.get("description", ""),
+                }
+            )
+    supported_reasoning_levels = normalized_levels
+
+    if (
+        default_reasoning_level is None
+        or not isinstance(default_reasoning_level, str)
+        or not default_reasoning_level
+    ):
+        default_reasoning_level = "medium"
+
+    # Context window
+    ctx_int = (
+        int(context_window) if isinstance(context_window, (int, float)) else 131072
+    )
+    if max_context_window is None or not isinstance(max_context_window, (int, float)):
+        max_context_window = ctx_int
+    else:
+        max_context_window = int(max_context_window)
+
+    return {
+        "slug": model_id,
+        "display_name": str(display_name),
+        "description": str(description),
+        "default_reasoning_level": str(default_reasoning_level),
+        "supported_reasoning_levels": supported_reasoning_levels,
+        "shell_type": "shell_command",
+        "visibility": "list",
+        "supported_in_api": True,
+        "priority": priority,
+        "additional_speed_tiers": [],
+        "service_tiers": [],
+        "default_service_tier": None,
+        "availability_nux": None,
+        "upgrade": None,
+        "base_instructions": str(base_instructions),
+        "model_messages": None,
+        "supports_reasoning_summaries": (
+            bool(supports_reasoning_summaries)
+            if supports_reasoning_summaries is not None
+            else False
+        ),
+        "default_reasoning_summary": "none",
+        "support_verbosity": False,
+        "default_verbosity": None,
+        "apply_patch_tool_type": None,
+        "web_search_tool_type": "text",
+        "truncation_policy": {"mode": "tokens", "limit": 10000},
+        "supports_parallel_tool_calls": (
+            bool(supports_parallel_tool_calls)
+            if supports_parallel_tool_calls is not None
+            else True
+        ),
+        "supports_image_detail_original": False,
+        "context_window": ctx_int,
+        "max_context_window": max_context_window,
+        "auto_compact_token_limit": None,
+        "effective_context_window_percent": 95,
+        "experimental_supported_tools": [],
+        "input_modalities": ["text", "image"],
+        "supports_search_tool": (
+            bool(supports_search_tool) if supports_search_tool is not None else False
+        ),
+    }
 
 
 def validate_model_access(
