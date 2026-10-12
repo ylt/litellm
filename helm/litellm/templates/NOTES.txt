@@ -12,9 +12,15 @@ Components:
 {{- end }}
 
 Port-forward examples:
+{{- if .Values.gateway.enabled }}
   kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "litellm.gateway.fullname" . }} {{ .Values.gateway.service.port }}
+{{- end }}
+{{- if .Values.backend.enabled }}
   kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "litellm.backend.fullname" . }} {{ .Values.backend.service.port }}
+{{- end }}
+{{- if .Values.ui.enabled }}
   kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "litellm.ui.fullname" . }} {{ .Values.ui.service.port }}
+{{- end }}
 
 Reminders:
   - Sensitive values come from Secret references only. Before installing, set:

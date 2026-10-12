@@ -47,11 +47,17 @@ spec:
               value: {{ .Values.gateway.numWorkers | quote }}
             {{- end }}
           {{- include "litellm.envFrom" .Values.gateway | nindent 10 }}
-          {{- if .Values.gateway.config.create }}
+          {{- if or .Values.gateway.config.create .Values.persistence.enabled }}
           volumeMounts:
+            {{- if .Values.gateway.config.create }}
             - name: gateway-config
               mountPath: /app/config/config.yaml
               subPath: config.yaml
+            {{- end }}
+            {{- if .Values.persistence.enabled }}
+            - name: data
+              mountPath: /app/data
+            {{- end }}
           {{- end }}
           {{- with .Values.gateway.livenessProbe }}
           livenessProbe:
@@ -61,13 +67,24 @@ spec:
           readinessProbe:
             {{- toYaml . | nindent 12 }}
           {{- end }}
+          {{- with .Values.gateway.startupProbe }}
+          startupProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
           resources:
             {{- toYaml .Values.gateway.resources | nindent 12 }}
-      {{- if .Values.gateway.config.create }}
+      {{- if or .Values.gateway.config.create .Values.persistence.enabled }}
       volumes:
+        {{- if .Values.gateway.config.create }}
         - name: gateway-config
           configMap:
             name: {{ include "litellm.gateway.fullname" . }}-config
+        {{- end }}
+        {{- if .Values.persistence.enabled }}
+        - name: data
+          persistentVolumeClaim:
+            claimName: {{ include "litellm.fullname" . }}-data
+        {{- end }}
       {{- end }}
       {{- with .Values.gateway.nodeSelector }}
       nodeSelector:

@@ -1,4 +1,40 @@
-{{- if .Values.ingress.enabled -}}
+{{- if and .Values.ingress.enabled .Values.ingress.singleService (not .Values.gateway.enabled) -}}
+{{- fail "ingress.singleService requires gateway.enabled: true" -}}
+{{- end -}}
+{{- if and .Values.ingress.enabled .Values.ingress.singleService -}}
+# Single-service mode: route everything to the gateway
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "litellm.fullname" . }}
+  labels:
+    {{- include "litellm.commonLabels" . | nindent 4 }}
+  {{- with .Values.ingress.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  {{- with .Values.ingress.className }}
+  ingressClassName: {{ . | quote }}
+  {{- end }}
+  {{- with .Values.ingress.tls }}
+  tls:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  rules:
+    - {{- with .Values.ingress.host }}
+      host: {{ . | quote }}
+      {{- end }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "litellm.gateway.fullname" . }}
+                port:
+                  number: {{ .Values.gateway.service.port }}
+{{- else if .Values.ingress.enabled -}}
 {{- $gatewayName := include "litellm.gateway.fullname" . -}}
 {{- $backendName := include "litellm.backend.fullname" . -}}
 {{- $uiName := include "litellm.ui.fullname" . -}}

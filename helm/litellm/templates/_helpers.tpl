@@ -134,6 +134,13 @@ sets).
 - name: LITELLM_LOG
   value: {{ $component.logLevel | quote }}
 {{- end }}
+{{- if $root.Values.database.useUrl }}
+- name: DATABASE_URL
+  valueFrom:
+    secretKeyRef:
+      name: {{ required "database.urlSecret.name is required when database.useUrl is true" $root.Values.database.urlSecret.name }}
+      key: {{ $root.Values.database.urlSecret.key | default "DATABASE_URL" }}
+{{- else }}
 {{- with $root.Values.database.writer }}
 - name: DATABASE_HOST
   value: {{ required "database.writer.host is required" .host | quote }}
@@ -159,6 +166,7 @@ sets).
     secretKeyRef:
       name: {{ .passwordSecret.name }}
       key: {{ .passwordSecret.passwordKey | default "password" }}
+{{- end }}
 {{- end }}
 {{- end }}
 {{- with $root.Values.database.reader }}

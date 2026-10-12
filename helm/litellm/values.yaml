@@ -9,6 +9,10 @@ imagePullSecrets: []
 # entrypoint. Required when serving the static UI bundle over the network.
 ingress:
   enabled: false
+  # When enabled, send every path to the gateway service. Use this only for
+  # deployments where the gateway is the sole externally exposed component.
+  # The default routes the UI, gateway, and management API independently.
+  singleService: false
   className: ""
   annotations: {}
   host: ""        # optional; if set, becomes the rule's host
@@ -41,6 +45,16 @@ serviceAccounts:
     automount: false
     annotations: {}
     name: ""
+
+# Optional persistent storage for gateway-local data (for example, a local
+# database/cache or files configured through the gateway). Disabled by default;
+# enable it only when the gateway workload is pinned to a compatible storage
+# topology or the selected access mode supports the desired replica count.
+persistence:
+  enabled: false
+  accessMode: ReadWriteOnce
+  size: 5Gi
+  storageClass: ""
 
 # Pre-install / pre-upgrade Helm hook that runs `prisma migrate deploy`
 # against the writer database, creating the LiteLLM schema (tables that
@@ -75,6 +89,12 @@ masterKey:
 
 # External Postgres connection. 
 database:
+  # Set true to use a complete DATABASE_URL from a Secret instead of
+  # assembling it from the discrete writer fields below.
+  useUrl: false
+  urlSecret:
+    name: ""
+    key: DATABASE_URL
   writer:
     host: ""
     port: 5432
@@ -149,6 +169,9 @@ gateway:
     httpGet: { path: /health/readiness, port: http }
     initialDelaySeconds: 5
     periodSeconds: 10
+  # Optional startup probe for slow image initialization or database-backed
+  # deployments. When unset, Kubernetes starts using readiness/liveness.
+  startupProbe: null
   hpa:
     enabled: true
     minReplicas: 1
