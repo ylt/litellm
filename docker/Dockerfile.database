@@ -64,7 +64,7 @@ RUN prisma generate --schema=./schema.prisma
 # falls back to its OpenSSL 1.1 engine. Use the bundled OpenSSL 3 engine at
 # that selected path so the runtime query engine can load on Wolfi.
 RUN PRISMA_BIN_DIR="/root/.cache/prisma-python/binaries/5.4.2/ac9d7041ed77bcc8a8dbd2ab6616b39013829574/node_modules/prisma" && \
-    cp "$PRISMA_BIN_DIR/query-engine-debian-openssl-3.0.x" \
+    cp "$PRISMA_BIN_DIR/query-engine-linux-musl-openssl-3.0.x" \
        "$PRISMA_BIN_DIR/query-engine-linux-arm64-openssl-1.1.x"
 
 RUN sed -i 's/\r$//' docker/entrypoint.sh && chmod +x docker/entrypoint.sh && \
